@@ -59,8 +59,9 @@ def measure_distance(x1, y1, x2, y2):
     distance = np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
     return distance
 
-def updateGameField(corners, ids, img):
+def updateGameField(corners, ids):
     global min_marker_x, max_marker_x, min_marker_y, max_marker_y, marker_pos
+    marker_pos = []
     marker_x = []
     marker_y = []
     for i in range(len(ids)):
@@ -78,12 +79,12 @@ def updateGameField(corners, ids, img):
     min_marker_y = min(marker_y)
     max_marker_y = max(marker_y)    
     
-def transformation(img, marker_pos):
+def transformation(frame, marker_pos):
     markers = np.float32(marker_pos)
     destination = np.float32(np.array([[0, 0], [window.width, 0], [window.width, window.height], [0, window.height]]))
     mat = cv2.getPerspectiveTransform(markers, destination)
-    warped_img = cv2.warpPerspective(img, mat, (window.width, window.height)) #https://docs.opencv.org/3.4/da/d6e/tutorial_py_geometric_transformations.html
-    return warped_img
+    warped_frame = cv2.warpPerspective(frame, mat, (window.width, window.height)) #https://docs.opencv.org/3.4/da/d6e/tutorial_py_geometric_transformations.html
+    return warped_frame
     
 class Target:
     targets = []
@@ -99,8 +100,8 @@ class Target:
     def create_target(delta_time):
         if random.randint(0, 10) == 0:
             radius = random.randint(MIN_TARGET_RADIUS, MAX_TARGET_RADIUS)
-            x = random.randint(min_marker_x, max_marker_x - radius)
-            y = random.randint(min_marker_y, max_marker_y - radius)
+            x = random.randint(0, window.width - radius)
+            y = random.randint(0, window.height - radius)
             Target.targets.append(Target(x, y, radius))
 
     def propagate_click(x, y):
@@ -145,17 +146,22 @@ while True:
         global marker_pos
         window.clear()
         ret, frame = cap.read()
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
-        img = cv2glet(frame, 'BGR')
-        img.blit(0, 0, 0)
-        if ids is not None:
-            if len(ids) == 4:
-                updateGameField(corners, ids, img)               
-                Target.draw_targets()
-            else:
-                img = cv2glet(frame, 'BGR')
-                marker_pos = []
+        if ret:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
+            img = cv2glet(frame, 'BGR')
+            img.blit(0, 0, 0)
+            if ids is not None:
+                if len(ids) == 4:
+                    updateGameField(corners, ids)       
+                    warped_frame = transformation(frame, marker_pos)
+                    img = cv2glet(warped_frame, 'BGR')
+                    img.blit(0, 0, 0)
+                    Target.draw_targets()
+                else:
+                    img = cv2glet(frame, 'BGR')
+                    img.blit(0, 0, 0)
+                    marker_pos = []
             
     clock.schedule_interval(Target.update_targets, 0.1)
     clock.schedule_interval(Target.create_target, 0.1)
