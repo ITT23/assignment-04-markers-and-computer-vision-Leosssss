@@ -1,6 +1,6 @@
 import cv2
 
-img = cv2.imread('sample_image.jpg')
+img = cv2.imread('./image_extraction/sample_image.jpg')
 WINDOW_NAME = 'Preview Window'
 
 cv2.namedWindow(WINDOW_NAME)
@@ -13,6 +13,6 @@ def mouse_callback(event, x, y, flags, param):
         cv2.imshow(WINDOW_NAME, img)
 
 cv2.setMouseCallback(WINDOW_NAME, mouse_callback)
-cv2.imshow(WINDOW_NAME, img)
+cv2.imshow("img", img)
 
 cv2.waitKey(0)
