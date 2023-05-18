@@ -1,4 +1,4 @@
-# Quelle: Exercise 01: pyglet_click.py
+# Quelle: Exercise 01: pyglet_click.py, opencv_pyglet.py, aruco_sample.py
 import pyglet
 from pyglet import shapes, clock
 import random
@@ -7,11 +7,18 @@ import numpy as np
 import sys
 import cv2
 from PIL import Image
+import cv2.aruco as aruco
+
+MIN_TARGET_RADIUS = 5
+MAX_TARGET_RADIUS = 30
 
 video_id = 0
 
 if len(sys.argv) > 1:
     video_id = int(sys.argv[1])
+
+aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_6X6_250)
+aruco_params = aruco.DetectorParameters()
     
 # converts OpenCV image to PIL image and then to pyglet texture
 # https://gist.github.com/nkymut/1cb40ea6ae4de0cf9ded7332f1ca0d55
@@ -34,18 +41,50 @@ def cv2glet(img,fmt):
                                    pitch=top_to_bottom_flag*bytes_per_row)
     return pyimg
 
-# Create a video capture object for the webcam
 cap = cv2.VideoCapture(video_id)
 
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 648
+# https://chat.openai.com/  Answer to question: How to get the width and height of the webcam frame
+webcam_frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+webcam_frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-window = pyglet.window.Window(WINDOW_WIDTH, WINDOW_HEIGHT)
+window = pyglet.window.Window(webcam_frame_width, webcam_frame_height)
+
+min_marker_x = 0
+max_marker_x = window.width
+min_marker_y = 0
+max_marker_y = window.height
+marker_pos = []
 
 def measure_distance(x1, y1, x2, y2):
     distance = np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
     return distance
 
+def updateGameField(corners, ids, img):
+    global min_marker_x, max_marker_x, min_marker_y, max_marker_y, marker_pos
+    marker_x = []
+    marker_y = []
+    for i in range(len(ids)):
+        # https://chat.openai.com/  Answer to question: How to get position of aruco marker
+        marker_corners = corners[i][0]
+        cx = int((marker_corners[0][0] + marker_corners[2][0]) / 2)
+        cy = int((marker_corners[0][1] + marker_corners[2][1]) / 2)
+        
+        marker_pos.append((cx,cy))
+        marker_x.append(cx)
+        marker_y.append(cy)
+        
+    min_marker_x = min(marker_x)
+    max_marker_x = max(marker_x)
+    min_marker_y = min(marker_y)
+    max_marker_y = max(marker_y)    
+    
+def transformation(img, marker_pos):
+    markers = np.float32(marker_pos)
+    destination = np.float32(np.array([[0, 0], [window.width, 0], [window.width, window.height], [0, window.height]]))
+    mat = cv2.getPerspectiveTransform(markers, destination)
+    warped_img = cv2.warpPerspective(img, mat, (window.width, window.height)) #https://docs.opencv.org/3.4/da/d6e/tutorial_py_geometric_transformations.html
+    return warped_img
+    
 class Target:
     targets = []
 
@@ -59,9 +98,9 @@ class Target:
 
     def create_target(delta_time):
         if random.randint(0, 10) == 0:
-            radius = random.randint(10, 80)
-            x = random.randint(0, window.width - radius)
-            y = random.randint(0, window.height - radius)
+            radius = random.randint(MIN_TARGET_RADIUS, MAX_TARGET_RADIUS)
+            x = random.randint(min_marker_x, max_marker_x - radius)
+            y = random.randint(min_marker_y, max_marker_y - radius)
             Target.targets.append(Target(x, y, radius))
 
     def propagate_click(x, y):
@@ -75,7 +114,7 @@ class Target:
         self.x = x
         self.y = y
         self.radius = radius
-        self.color = (55, 55, 255)
+        self.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
         self.shape = shapes.Circle(x=self.x,
                                    y=self.y,
                                    radius=self.radius,
@@ -90,25 +129,35 @@ class Target:
 
     def draw(self):
         self.shape.draw()
+        
+while True:
+    @window.event
+    def on_mouse_press(x, y, button, modifiers):
+        Target.propagate_click(x, y)
 
-@window.event
-def on_mouse_press(x, y, button, modifiers):
-    Target.propagate_click(x, y)
+    @window.event
+    def on_key_press(symbol, modifiers):
+        if symbol == pyglet.window.key.Q:
+            sys.exit(0)
 
-@window.event
-def on_key_press(symbol, modifiers):
-    if symbol == pyglet.window.key.Q:
-        sys.exit(0)
+    @window.event
+    def on_draw():
+        global marker_pos
+        window.clear()
+        ret, frame = cap.read()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
+        img = cv2glet(frame, 'BGR')
+        img.blit(0, 0, 0)
+        if ids is not None:
+            if len(ids) == 4:
+                updateGameField(corners, ids, img)               
+                Target.draw_targets()
+            else:
+                img = cv2glet(frame, 'BGR')
+                marker_pos = []
+            
+    clock.schedule_interval(Target.update_targets, 0.1)
+    clock.schedule_interval(Target.create_target, 0.1)
 
-@window.event
-def on_draw():
-    window.clear()
-    ret, frame = cap.read()
-    img = cv2glet(frame, 'BGR')
-    img.blit(0, 0, 0)
-    Target.draw_targets()
-
-clock.schedule_interval(Target.update_targets, 0.1)
-clock.schedule_interval(Target.create_target, 0.1)
-
-pyglet.app.run()
+    pyglet.app.run()
