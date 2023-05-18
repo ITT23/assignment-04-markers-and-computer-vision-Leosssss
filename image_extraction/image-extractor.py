@@ -53,6 +53,6 @@ while True:
         cv2.imshow(RESULT_WINDOW_NAME, wrapped_area)
         if key == ord("s"):
             destination = input("Enter the output destination: ")
-            cv2.imwrite(os.path.join(destination ,"result.jpg"), wrapped_area)
+            cv2.imwrite(os.path.join(destination ,"result.jpg"), wrapped_area) # https://stackoverflow.com/questions/41586429/opencv-saving-images-to-a-particular-folder-of-choice
             print("Image saved successfully!")
             cv2.waitKey(0)
