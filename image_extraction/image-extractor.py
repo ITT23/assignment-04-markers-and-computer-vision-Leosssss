@@ -26,9 +26,15 @@ def mouse_callback(event, x, y, flags, param):
         
 cv2.setMouseCallback(PREVIEW_WINDOW_NAME, mouse_callback)
 
+def sort_four_points(points): # https://chat.openai.com/ I asked ChatGPT how to sort coordinates with array sort
+    sorted_points = sorted(points, key=lambda p: p[0])
+    top_left, top_right = sorted(sorted_points[:2], key=lambda p: p[1])
+    bottom_left, bottom_right = sorted(sorted_points[2:], key=lambda p: p[1])
+    return [top_left, bottom_left, bottom_right, top_right]
+
 def transformation(img, points):
-    # TODO: sort points
-    selected_points = np.float32(points)
+    sorted_points = sort_four_points(points)
+    selected_points = np.float32(sorted_points)
     destination = np.float32(np.array([[0, 0], [RESULT_WINDOW_WIDTH - RADIUS, 0], [RESULT_WINDOW_WIDTH - RADIUS, RESULT_WINDOW_HEIGHT - RADIUS], [0, RESULT_WINDOW_HEIGHT - RADIUS]]))
     mat = cv2.getPerspectiveTransform(selected_points, destination)
     warped_img = cv2.warpPerspective(img, mat, (RESULT_WINDOW_WIDTH, RESULT_WINDOW_HEIGHT)) #https://docs.opencv.org/3.4/da/d6e/tutorial_py_geometric_transformations.html
