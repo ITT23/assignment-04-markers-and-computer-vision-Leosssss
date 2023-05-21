@@ -12,6 +12,14 @@ import math
 
 MIN_TARGET_RADIUS = 8
 MAX_TARGET_RADIUS = 25
+SLOW_SPEED = 5
+FAST_SPEED = 15
+LABEL_SCORE = "Current Score: "
+EASY_SCORE = 1
+MIDDLE_SCORE = 2
+HARD_SCORE = 3
+NEGATIV_SCROE = 2
+score = 0
 
 video_id = 0
 
@@ -20,6 +28,7 @@ if len(sys.argv) > 1:
 
 aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_6X6_250)
 aruco_params = aruco.DetectorParameters()
+
     
 # converts OpenCV image to PIL image and then to pyglet texture
 # https://gist.github.com/nkymut/1cb40ea6ae4de0cf9ded7332f1ca0d55
@@ -49,6 +58,7 @@ webcam_frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 webcam_frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
 window = pyglet.window.Window(webcam_frame_width, webcam_frame_height)
+label = pyglet.text.Label(LABEL_SCORE+str(score), font_name='Times New Roman', font_size=14, x=10, y=window.height-20)
 
 min_marker_x = 0
 max_marker_x = window.width
@@ -109,7 +119,7 @@ def detected_finger(frame): # finger detection with HSV color space https://chat
     
     for contour in filtered_contours:
         topmost = tuple(contour[contour[:,:,1].argmin()][0])
-        cv2.circle(frame, topmost, 5, (0, 255, 0), -1)
+        cv2.circle(frame, topmost, 10, (0, 255, 0), 2)
 
     return frame, filtered_contours
 
@@ -129,16 +139,24 @@ class Target:
         if random.randint(0, 10) == 0:
             radius = random.randint(MIN_TARGET_RADIUS, MAX_TARGET_RADIUS)
             x = random.randint(radius, window.width - radius)
-            y = random.randint(radius, window.height - radius)
+            y = window.height
             Target.targets.append(Target(x, y, radius))
 
-    def finger_click(finger_contours):
+    def finger_click(finger_contours): # The highest point of the hand can interact with targets
+        global score
         for contour in finger_contours:
             for target in Target.targets:
                 (x,y) = tuple(contour[contour[:,:,1].argmin()][0])
                 distance = measure_distance(window.width-x, window.height-y, target.x, target.y)
-                if distance <= target.radius + 5:
+                if distance <= target.radius + 10:
                     Target.targets.remove(target)
+                    if target.radius < MIN_TARGET_RADIUS + (MAX_TARGET_RADIUS-MIN_TARGET_RADIUS)/3:
+                        score += HARD_SCORE
+                    elif target.radius > MAX_TARGET_RADIUS - (MAX_TARGET_RADIUS-MIN_TARGET_RADIUS)/3:
+                        score += EASY_SCORE
+                    else:
+                        score += MIDDLE_SCORE
+                    label.text = LABEL_SCORE+str(score)
                     break
     
     def __init__(self, x, y, radius):
@@ -150,22 +168,23 @@ class Target:
                                    y=self.y,
                                    radius=self.radius,
                                    color=self.color)
-        self.lifetime = random.randint(3, 8)
-        self.age = 0
 
     def update(self, time_delta):
-        self.age += time_delta
-        if self.age > self.lifetime:
+        global score
+        if score < 30:
+            self.y -= SLOW_SPEED
+        else:
+            self.y -= FAST_SPEED
+        self.shape.y = self.y
+        if self.shape.y < 0:
             Target.targets.remove(self)
-
+            score -= NEGATIV_SCROE
+            label.text = LABEL_SCORE+str(score)
+            
     def draw(self):
         self.shape.draw()
         
 while True:
-    @window.event
-    def on_mouse_press(x, y, button, modifiers):
-        Target.propagate_click(x, y)
-
     @window.event
     def on_key_press(symbol, modifiers):
         if symbol == pyglet.window.key.Q:
@@ -183,21 +202,22 @@ while True:
             img.blit(0, 0, 0)
             if ids is not None:
                 if len(ids) == 4:
-                    update_game_field(corners, ids)  
-                    #detect_frame, finger_contours = detected_finger(frame)     
+                    update_game_field(corners, ids)     
                     warped_frame = transformation(frame, marker_pos)
                     detect_frame, finger_contours = detected_finger(warped_frame)
                     flip_warped_frame = cv2.flip(detect_frame, 1)
                     img = cv2glet(flip_warped_frame, 'BGR')
                     img.blit(0, 0, 0)           
                     Target.draw_targets()
+                    Target.update_targets(0.1)
                     Target.finger_click(finger_contours)
                 else:
                     img = cv2glet(frame, 'BGR')
                     img.blit(0, 0, 0)
                     marker_pos = []
+        label.draw()
             
     clock.schedule_interval(Target.update_targets, 0.1)
-    clock.schedule_interval(Target.create_target, 0.1)
+    clock.schedule_interval(Target.create_target, 0.2)
 
     pyglet.app.run()
