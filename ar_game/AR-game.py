@@ -8,6 +8,7 @@ import sys
 import cv2
 from PIL import Image
 import cv2.aruco as aruco
+import math
 
 MIN_TARGET_RADIUS = 8
 MAX_TARGET_RADIUS = 25
@@ -92,25 +93,24 @@ def transformation(frame, marker_pos):
     warped_frame = cv2.warpPerspective(frame, mat, (window.width, window.height)) #https://docs.opencv.org/3.4/da/d6e/tutorial_py_geometric_transformations.html
     return warped_frame
 
-def detected_finger(frame): # I let ChatGPT explain how to detect finger on a white paper, and show me the code in python
-    # Convert image to HSV color space
+def detected_finger(frame): # finger detection with HSV color space https://chat.openai.com/
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # Define lower and upper thresholds for skin color in HSV
     lower_skin = np.array([0, 20, 70], dtype=np.uint8)
     upper_skin = np.array([20, 255, 255], dtype=np.uint8)
 
     mask = cv2.inRange(hsv, lower_skin, upper_skin)
 
-    # Perform morphological operations to remove noise
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Filter contours based on area and length of contour
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > 100 and len(cnt) > 10]
-    cv2.drawContours(frame, filtered_contours, -1, (0, 255, 0), 2)
+    
+    for contour in filtered_contours:
+        topmost = tuple(contour[contour[:,:,1].argmin()][0])
+        cv2.circle(frame, topmost, 5, (0, 255, 0), -1)
+
     return frame, filtered_contours
 
 class Target:
@@ -125,19 +125,22 @@ class Target:
             target.draw()
 
     def create_target(delta_time):
+        global min_marker_x, max_marker_x, min_marker_y, max_marker_y
         if random.randint(0, 10) == 0:
             radius = random.randint(MIN_TARGET_RADIUS, MAX_TARGET_RADIUS)
             x = random.randint(radius, window.width - radius)
             y = random.randint(radius, window.height - radius)
             Target.targets.append(Target(x, y, radius))
 
-    def propagate_click(x, y):
-        for target in Target.targets:
-            distance = measure_distance(x, y, target.x, target.y)
-            if distance < target.radius:
-                Target.targets.remove(target)
-                break
-
+    def finger_click(finger_contours):
+        for contour in finger_contours:
+            for target in Target.targets:
+                (x,y) = tuple(contour[contour[:,:,1].argmin()][0])
+                distance = measure_distance(window.width-x, window.height-y, target.x, target.y)
+                if distance <= target.radius + 5:
+                    Target.targets.remove(target)
+                    break
+    
     def __init__(self, x, y, radius):
         self.x = x
         self.y = y
@@ -173,7 +176,6 @@ while True:
         global marker_pos
         window.clear()
         ret, frame = cap.read()
-        #flip_frame = cv2.flip(frame, 1)
         if ret:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
@@ -181,13 +183,15 @@ while True:
             img.blit(0, 0, 0)
             if ids is not None:
                 if len(ids) == 4:
-                    update_game_field(corners, ids)       
+                    update_game_field(corners, ids)  
+                    #detect_frame, finger_contours = detected_finger(frame)     
                     warped_frame = transformation(frame, marker_pos)
-                    warped_frame, finger_contours = detected_finger(warped_frame)
-                    flip_warped_frame = cv2.flip(warped_frame, 1)
+                    detect_frame, finger_contours = detected_finger(warped_frame)
+                    flip_warped_frame = cv2.flip(detect_frame, 1)
                     img = cv2glet(flip_warped_frame, 'BGR')
-                    img.blit(0, 0, 0)
-                    Target.draw_targets()           
+                    img.blit(0, 0, 0)           
+                    Target.draw_targets()
+                    Target.finger_click(finger_contours)
                 else:
                     img = cv2glet(frame, 'BGR')
                     img.blit(0, 0, 0)
