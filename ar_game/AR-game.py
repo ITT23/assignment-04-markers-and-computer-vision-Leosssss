@@ -9,8 +9,8 @@ import cv2
 from PIL import Image
 import cv2.aruco as aruco
 
-MIN_TARGET_RADIUS = 5
-MAX_TARGET_RADIUS = 30
+MIN_TARGET_RADIUS = 8
+MAX_TARGET_RADIUS = 25
 
 video_id = 0
 
@@ -59,7 +59,7 @@ def measure_distance(x1, y1, x2, y2):
     distance = np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
     return distance
 
-def updateGameField(corners, ids):
+def update_game_field(corners, ids):
     global min_marker_x, max_marker_x, min_marker_y, max_marker_y, marker_pos
     marker_pos = []
     marker_x = []
@@ -79,13 +79,40 @@ def updateGameField(corners, ids):
     min_marker_y = min(marker_y)
     max_marker_y = max(marker_y)    
     
+def sort_four_points(points): # https://chat.openai.com/ I asked ChatGPT how to sort coordinates with array sort
+    sorted_points = sorted(points, key=lambda p: p[0])
+    top_left, top_right = sorted(sorted_points[:2], key=lambda p: p[1])
+    bottom_left, bottom_right = sorted(sorted_points[2:], key=lambda p: p[1])
+    return [top_left, bottom_left, bottom_right, top_right]
+    
 def transformation(frame, marker_pos):
-    markers = np.float32(marker_pos)
+    markers = np.float32(sort_four_points(marker_pos))
     destination = np.float32(np.array([[0, 0], [window.width, 0], [window.width, window.height], [0, window.height]]))
     mat = cv2.getPerspectiveTransform(markers, destination)
     warped_frame = cv2.warpPerspective(frame, mat, (window.width, window.height)) #https://docs.opencv.org/3.4/da/d6e/tutorial_py_geometric_transformations.html
     return warped_frame
-    
+
+def detected_finger(frame): # I let ChatGPT explain how to detect finger on a white paper, and show me the code in python
+    # Convert image to HSV color space
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    # Define lower and upper thresholds for skin color in HSV
+    lower_skin = np.array([0, 20, 70], dtype=np.uint8)
+    upper_skin = np.array([20, 255, 255], dtype=np.uint8)
+
+    mask = cv2.inRange(hsv, lower_skin, upper_skin)
+
+    # Perform morphological operations to remove noise
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Filter contours based on area and length of contour
+    filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > 100 and len(cnt) > 10]
+    cv2.drawContours(frame, filtered_contours, -1, (0, 255, 0), 2)
+    return frame, filtered_contours
+
 class Target:
     targets = []
 
@@ -100,8 +127,8 @@ class Target:
     def create_target(delta_time):
         if random.randint(0, 10) == 0:
             radius = random.randint(MIN_TARGET_RADIUS, MAX_TARGET_RADIUS)
-            x = random.randint(0, window.width - radius)
-            y = random.randint(0, window.height - radius)
+            x = random.randint(radius, window.width - radius)
+            y = random.randint(radius, window.height - radius)
             Target.targets.append(Target(x, y, radius))
 
     def propagate_click(x, y):
@@ -146,6 +173,7 @@ while True:
         global marker_pos
         window.clear()
         ret, frame = cap.read()
+        #flip_frame = cv2.flip(frame, 1)
         if ret:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
@@ -153,11 +181,13 @@ while True:
             img.blit(0, 0, 0)
             if ids is not None:
                 if len(ids) == 4:
-                    updateGameField(corners, ids)       
+                    update_game_field(corners, ids)       
                     warped_frame = transformation(frame, marker_pos)
-                    img = cv2glet(warped_frame, 'BGR')
+                    warped_frame, finger_contours = detected_finger(warped_frame)
+                    flip_warped_frame = cv2.flip(warped_frame, 1)
+                    img = cv2glet(flip_warped_frame, 'BGR')
                     img.blit(0, 0, 0)
-                    Target.draw_targets()
+                    Target.draw_targets()           
                 else:
                     img = cv2glet(frame, 'BGR')
                     img.blit(0, 0, 0)
